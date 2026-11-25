@@ -52,8 +52,9 @@
   </style>
 </head>
 <body>
-  <!-- ios-src を省略: iPhone では AR 起動時に USDZ を自動生成する（その時点の大きさが反映される） -->
-  <model-viewer id="mv" src="wyvern.glb" alt="飛竜の3Dモデル"
+  <!-- iPhone の AR は ios-src の USDZ（動き・咆哮音入り、大きさ別に3種）を使う。
+       URL に ?auto を付けると USDZ を使わず自動生成に戻す（動き・音なし。USDZ が開けないときの切り分け用） -->
+  <model-viewer id="mv" src="wyvern.glb" ios-src="wyvern_m.usdz" alt="飛竜の3Dモデル" autoplay
     ar ar-modes="webxr scene-viewer quick-look" ar-placement="floor" ar-scale="auto"
     camera-controls touch-action="none" auto-rotate rotation-per-second="20deg"
     interaction-prompt="none" shadow-intensity="1.1" shadow-softness="0.9"
@@ -79,9 +80,9 @@
 
   <div id="panel">
     <div class="seg" id="sizes">
-      <button data-len="0.3">卓上<span>30 cm</span></button>
-      <button data-len="1.9" aria-pressed="true">中型<span>1.9 m</span></button>
-      <button data-len="8" data-fixed>実物大<span>8 m</span></button>
+      <button data-len="0.3" data-key="s">卓上<span>30 cm</span></button>
+      <button data-len="1.9" data-key="m" aria-pressed="true">中型<span>1.9 m</span></button>
+      <button data-len="8" data-key="l" data-fixed>実物大<span>8 m</span></button>
     </div>
     <div class="row">
       <button id="roar">咆哮</button>
@@ -94,8 +95,11 @@
   <div id="toast"></div>
 
   <script>
+    const ROAR_T0 = 3.0;       // アニメーション内で咆哮が始まる秒（rig_animate.py と合わせる）
+    const USE_USDZ = !new URLSearchParams(location.search).has('auto');
     const BASE_LENGTH = 1.9;   // wyvern.glb の全長（m）。モデルを差し替えたら更新する
     const mv = document.getElementById('mv');
+    if (!USE_USDZ) mv.removeAttribute('ios-src');
     const $ = id => document.getElementById(id);
     const toast = msg => { const t = $('toast'); t.textContent = msg; t.classList.add('show');
       clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1800); };
@@ -114,21 +118,31 @@
     const hints = { '0.3': '机の上に置けるサイズ。ピンチで拡大縮小できます',
                     '1.9': '室内向けのサイズ。ピンチで拡大縮小できます',
                     '8': '実寸固定。屋外など広い場所で、少し離れて置いてください' };
+    let arScale = 1;
     function setSize(btn) {
       const len = parseFloat(btn.dataset.len), s = len / BASE_LENGTH;
       for (const b of $('sizes').children) b.setAttribute('aria-pressed', b === btn);
-      mv.scale = `${s} ${s} ${s}`;
+      arScale = s;   // 画面上の3D表示は常に同じ大きさ。倍率はAR起動時だけ適用する
       mv.setAttribute('ar-scale', 'fixed' in btn.dataset ? 'fixed' : 'auto');
+      if (USE_USDZ) mv.setAttribute('ios-src', `wyvern_${btn.dataset.key}.usdz`);
       $('size-label').firstChild.textContent = len < 1 ? Math.round(len * 100) : len.toFixed(1);
       $('size-label').lastElementChild.textContent = (len < 1 ? 'cm' : 'm') + ' 全長';
       $('hint').textContent = hints[btn.dataset.len] || '';
-      requestAnimationFrame(() => mv.updateFraming && mv.updateFraming());
     }
     $('sizes').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setSize(b); });
     $('hint').textContent = hints['1.9'];
 
     // ---- AR ----
-    $('ar').addEventListener('click', () => { toast('ARを準備中…'); mv.activateAR(); });
+    // iPhone は大きさ別の USDZ を使うので倍率は不要。それ以外（Android / ?auto）は起動直前にモデルを拡縮する
+    const usesUsdz = () => USE_USDZ && /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) && 'ontouchend' in document;
+    const resetScale = () => { if (mv.scale.x !== 1) mv.scale = '1 1 1'; };
+    $('ar').addEventListener('click', async () => {
+      toast('ARを準備中…');
+      if (!usesUsdz() && arScale !== 1) { mv.scale = `${arScale} ${arScale} ${arScale}`; await mv.updateComplete; }
+      mv.activateAR();
+    });
+    mv.addEventListener('ar-status', e => { if (e.detail.status === 'not-presenting' || e.detail.status === 'failed') resetScale(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(resetScale, 300); });
 
     // ---- 自動回転 / 共有 ----
     $('rotate').addEventListener('click', e => {
@@ -148,6 +162,7 @@
     function roar() {
       ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
       ctx.resume();
+      mv.currentTime = ROAR_T0; mv.play();   // 動きを咆哮の頭に合わせる
       const t = ctx.currentTime, d = 3.6;
       const out = ctx.createGain();
       out.gain.setValueAtTime(0.0001, t);
