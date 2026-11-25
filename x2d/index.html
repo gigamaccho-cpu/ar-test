@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1d24">
+  <title>X2D Sound AR</title>
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
+  <style>
+    :root { --fg: #f2f4f8; --dim: #a3abbb; --accent: #35d07f; --glass: rgba(24, 28, 36, .76); --line: rgba(255, 255, 255, .14); }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; height: 100%; overflow: hidden; color: var(--fg);
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+      background: radial-gradient(120% 80% at 50% 40%, #6a7180 0%, #3a3f4b 50%, #1a1d24 100%); }
+    model-viewer { position: absolute; inset: 0; width: 100%; height: 100%; --poster-color: transparent; }
+    button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+
+    header { position: absolute; top: 0; left: 0; right: 0; padding: calc(env(safe-area-inset-top) + 16px) 20px 0; pointer-events: none; }
+    h1 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .26em; }
+    #dist { margin-top: 6px; font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    #dist small { font-size: 14px; font-weight: 500; color: var(--dim); margin-left: 6px; }
+    #level { margin-top: 10px; width: 180px; height: 6px; border-radius: 3px; background: rgba(0, 0, 0, .35); overflow: hidden; }
+    #level i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .12s linear; }
+    #db { margin-top: 6px; font-size: 12px; color: var(--dim); }
+
+    #panel { position: absolute; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 12px);
+      max-width: 460px; margin: 0 auto; padding: 14px; border-radius: 22px; background: var(--glass);
+      border: 1px solid var(--line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+    .row { display: flex; gap: 10px; }
+    #sound { flex: 1; height: 52px; border-radius: 16px; border: 1px solid var(--line); font-weight: 600; }
+    #sound[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+    #ar { flex: 1.4; height: 52px; border-radius: 16px; background: var(--accent); color: #04210f; font-size: 16px; font-weight: 700; }
+    #ar[disabled] { background: rgba(255, 255, 255, .1); color: var(--dim); font-size: 12px; font-weight: 500; }
+    #sound:active, #ar:active { transform: scale(.96); }
+    #hint { margin: 10px 2px 0; font-size: 12px; color: var(--dim); text-align: center; line-height: 1.5; }
+
+    #loading { position: absolute; inset: 0; display: grid; place-content: center; gap: 14px; text-align: center;
+      background: #1a1d24; transition: opacity .5s; font-size: 13px; letter-spacing: .2em; color: var(--dim); }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #bar { width: 180px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+    #bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  </style>
+</head>
+<body>
+  <!-- iPhone の AR は x2d.usdz（実寸・立体音響入り）を使う。AR中の距離による音量変化は iPhone 側（Quick Look）が行う -->
+  <model-viewer id="mv" src="x2d.glb" ios-src="x2d.usdz" alt="3Dプリンタの3Dモデル"
+    ar ar-modes="webxr scene-viewer quick-look" ar-placement="floor" ar-scale="fixed"
+    camera-controls touch-action="none" interaction-prompt="none"
+    camera-orbit="35deg 72deg 2m" min-camera-orbit="auto auto 0.6m" max-camera-orbit="auto auto 8m"
+    camera-target="0m 0.33m 0m" field-of-view="38deg" min-field-of-view="38deg" max-field-of-view="38deg"
+    shadow-intensity="1" shadow-softness="0.8" exposure="1.5" tone-mapping="neutral">
+    <span slot="ar-button"></span>
+    <span slot="progress-bar"></span>
+  </model-viewer>
+
+  <header>
+    <h1>X2D SOUND AR</h1>
+    <div id="dist">2.0<small>m 離れた位置</small></div>
+    <div id="level"><i></i></div>
+    <div id="db"></div>
+  </header>
+
+  <div id="panel">
+    <div class="row">
+      <button id="sound" aria-pressed="false">動作音を鳴らす</button>
+      <button id="ar" disabled>読み込み中…</button>
+    </div>
+    <p id="hint">ピンチ（PCはホイール）で近づく・離れると、距離に応じて音量が変わります</p>
+  </div>
+
+  <div id="loading"><div>LOADING</div><div id="bar"><i></i></div></div>
+
+  <script>
+    // 距離と音量の関係: 点音源の逆二乗則（距離が2倍で -6 dB）。REF_DIST で音量 100%
+    const REF_DIST = 0.6;      // m。これより近くても音量は上げない
+    const DB_AT_1M = 50;       // 表示用の目安。「1 m で 50 dB」と仮定（メーカー公称は 50 dB 未満、測定距離は不明）
+    const mv = document.getElementById('mv');
+    const $ = id => document.getElementById(id);
+
+    // ---- 読み込み ----
+    mv.addEventListener('progress', e => { $('bar').firstElementChild.style.width = (e.detail.totalProgress * 100) + '%'; });
+    mv.addEventListener('load', () => {
+      $('loading').classList.add('done');
+      const ar = $('ar');
+      if (mv.canActivateAR) { ar.disabled = false; ar.textContent = 'ARで実寸表示'; }
+      else { ar.textContent = 'この端末はAR非対応'; }
+      update();
+    });
+    mv.addEventListener('error', () => { $('loading').firstElementChild.textContent = '読み込みに失敗しました'; });
+
+    // ---- 音 ----
+    let ctx, gain, playing = false, loading = null;
+    async function startSound() {
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      await ctx.resume();
+      if (!gain) {
+        loading = loading || fetch('x2d_loop.wav').then(r => r.arrayBuffer()).then(b => new Promise((ok, ng) => ctx.decodeAudioData(b, ok, ng)));
+        const buf = await loading;
+        gain = ctx.createGain(); gain.gain.value = 0; gain.connect(ctx.destination);
+        const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true; src.connect(gain); src.start();
+      }
+      playing = true; update();
+    }
+    function stopSound() { playing = false; if (gain) gain.gain.setTargetAtTime(0, ctx.currentTime, 0.05); }
+    $('sound').addEventListener('click', async e => {
+      const btn = e.currentTarget;
+      if (playing) { stopSound(); } else { btn.textContent = '準備中…'; try { await startSound(); } catch (_) { playing = false; } }
+      btn.setAttribute('aria-pressed', playing); btn.textContent = playing ? '動作音を止める' : '動作音を鳴らす';
+    });
+
+    // ---- 距離 → 音量 ----
+    const volumeAt = d => Math.min(1, REF_DIST / d);
+    function update() {
+      const d = mv.getCameraOrbit().radius, v = volumeAt(d);
+      $('dist').firstChild.textContent = d.toFixed(1);
+      $('level').firstElementChild.style.width = (v * 100) + '%';
+      $('db').textContent = `音量 ${Math.round(v * 100)}%　約 ${Math.round(DB_AT_1M - 20 * Math.log10(d))} dB（目安）`;
+      if (playing && gain) gain.gain.setTargetAtTime(v, ctx.currentTime, 0.06);
+    }
+    mv.addEventListener('camera-change', update);
+
+    // ---- AR ----
+    // iPhone では AR 画面（Quick Look）側が立体音響を鳴らすので、ページ側の音は止めて二重再生を避ける
+    $('ar').addEventListener('click', () => mv.activateAR());
+    document.addEventListener('visibilitychange', () => {
+      if (!ctx) return;
+      if (document.hidden) ctx.suspend(); else if (playing) ctx.resume();
+    });
+  </script>
+</body>
+</html>
