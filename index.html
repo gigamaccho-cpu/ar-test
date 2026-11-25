@@ -143,48 +143,56 @@
     });
 
     // ---- 咆哮（Web Audio でその場で合成。音声ファイルなし）----
+    // 高く長い金切り声：不協和な高音2声 + 細かい震え + 高域ノイズ。低音は出だしだけ。
     let ctx;
     function roar() {
       ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
       ctx.resume();
-      const t = ctx.currentTime, d = 2.4;
+      const t = ctx.currentTime, d = 3.6;
       const out = ctx.createGain();
       out.gain.setValueAtTime(0.0001, t);
-      out.gain.exponentialRampToValueAtTime(0.8, t + 0.12);
-      out.gain.setValueAtTime(0.8, t + d * 0.55);
+      out.gain.exponentialRampToValueAtTime(0.7, t + 0.05);
+      out.gain.setValueAtTime(0.7, t + d * 0.72);
       out.gain.exponentialRampToValueAtTime(0.0001, t + d);
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
-      lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(3800, t + 0.5);
-      lp.frequency.exponentialRampToValueAtTime(700, t + d);
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 350;
+      const peak = ctx.createBiquadFilter(); peak.type = 'peaking'; peak.frequency.value = 2600; peak.Q.value = 1.2; peak.gain.value = 9;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000;
       const shaper = ctx.createWaveShaper();
       const curve = new Float32Array(1024);
-      for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(4 * x); }
+      for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(3 * x); }
       shaper.curve = curve;
-      shaper.connect(lp).connect(out).connect(ctx.destination);
+      shaper.connect(hp).connect(peak).connect(lp).connect(out).connect(ctx.destination);
 
-      // がなり成分：振幅を細かく揺らす
+      // 震え：振幅を速く揺らし、後半ほど荒くする
       const rough = ctx.createGain(); rough.gain.value = 0.6; rough.connect(shaper);
-      const lfo = ctx.createOscillator(); lfo.frequency.setValueAtTime(34, t); lfo.frequency.linearRampToValueAtTime(19, t + d);
-      const lfoAmp = ctx.createGain(); lfoAmp.gain.value = 0.4; lfo.connect(lfoAmp).connect(rough.gain);
+      const lfo = ctx.createOscillator(); lfo.frequency.setValueAtTime(58, t); lfo.frequency.linearRampToValueAtTime(31, t + d);
+      const lfoAmp = ctx.createGain(); lfoAmp.gain.setValueAtTime(0.15, t); lfoAmp.gain.linearRampToValueAtTime(0.45, t + d);
+      lfo.connect(lfoAmp).connect(rough.gain);
+      // ビブラート：音程を小刻みに揺らす
+      const vib = ctx.createOscillator(); vib.frequency.value = 11;
+      const vibAmp = ctx.createGain(); vibAmp.gain.value = 45; vib.connect(vibAmp);
 
-      const voice = (type, f0, f1, f2, gain) => {
-        const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; g.gain.value = gain;
-        o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + 0.45);
+      const voice = (type, f0, f1, f2, gain, len) => {
+        const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type;
+        g.gain.setValueAtTime(gain, t); g.gain.setValueAtTime(gain, t + len * 0.8); g.gain.linearRampToValueAtTime(0, t + len);
+        o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + 0.18);
         o.frequency.exponentialRampToValueAtTime(f2, t + d);
-        o.connect(g).connect(rough); o.start(t); o.stop(t + d); };
-      voice('sawtooth', 70, 135, 48, 0.5);      // 低いうなり
-      voice('square', 73, 141, 51, 0.25);
-      voice('sawtooth', 520, 1250, 380, 0.16);  // 高い金切り声
+        vibAmp.connect(o.frequency);
+        o.connect(g).connect(rough); o.start(t); o.stop(t + len); };
+      voice('sawtooth', 700, 1650, 1250, 0.42, d);   // 主役の金切り声
+      voice('sawtooth', 960, 2260, 1700, 0.26, d);   // 不協和な上の声
+      voice('square',   350,  830,  620, 0.12, d);   // 喉鳴り
+      voice('sawtooth',  90,  150,   70, 0.30, 0.5); // 出だしの低い息
 
       const n = ctx.createBufferSource(), buf = ctx.createBuffer(1, ctx.sampleRate * d, ctx.sampleRate);
       const ch = buf.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
       n.buffer = buf;
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 0.7;
-      const ng = ctx.createGain(); ng.gain.value = 0.35;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3800; bp.Q.value = 0.8;
+      const ng = ctx.createGain(); ng.gain.value = 0.3;
       n.connect(bp).connect(ng).connect(rough); n.start(t); n.stop(t + d);
-      lfo.start(t); lfo.stop(t + d);
+      lfo.start(t); lfo.stop(t + d); vib.start(t); vib.stop(t + d);
 
-      if (navigator.vibrate) navigator.vibrate([120, 60, 500]);
+      if (navigator.vibrate) navigator.vibrate([80, 40, 900]);
       $('roar').classList.add('playing'); setTimeout(() => $('roar').classList.remove('playing'), d * 1000);
     }
     $('roar').addEventListener('click', roar);
