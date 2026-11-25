@@ -44,7 +44,7 @@
 </head>
 <body>
   <!-- iPhone の AR は x2d.usdz（実寸・立体音響入り）を使う。AR中の距離による音量変化は iPhone 側（Quick Look）が行う -->
-  <model-viewer id="mv" src="x2d.glb?v=3" ios-src="x2d.usdz?v=3" alt="3Dプリンタの3Dモデル"
+  <model-viewer id="mv" src="x2d.glb?v=4" ios-src="x2d.usdz?v=4" alt="3Dプリンタの3Dモデル"
     ar ar-modes="webxr scene-viewer quick-look" ar-placement="floor" ar-scale="fixed"
     camera-controls touch-action="none" interaction-prompt="none"
     camera-orbit="35deg 72deg 2m" min-camera-orbit="auto auto 0.6m" max-camera-orbit="auto auto 8m"
@@ -96,7 +96,7 @@
       ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
       await ctx.resume();
       if (!gain) {
-        loading = loading || fetch('x2d_loop.wav?v=3').then(r => r.arrayBuffer()).then(b => new Promise((ok, ng) => ctx.decodeAudioData(b, ok, ng)));
+        loading = loading || fetch('x2d_loop.wav?v=4').then(r => r.arrayBuffer()).then(b => new Promise((ok, ng) => ctx.decodeAudioData(b, ok, ng)));
         const buf = await loading;
         gain = ctx.createGain(); gain.gain.value = 0; gain.connect(ctx.destination);
         const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true; src.connect(gain); src.start();
