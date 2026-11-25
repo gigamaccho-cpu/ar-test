@@ -2,47 +2,192 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AR テスト</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1016">
+  <title>AR Wyvern</title>
   <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
   <style>
-    html, body { margin: 0; height: 100%; background: #1b1d22; font-family: system-ui, sans-serif; }
-    model-viewer { width: 100%; height: 100%; }
-    #ar-button {
-      position: absolute; left: 50%; bottom: 32px; transform: translateX(-50%);
-      padding: 14px 28px; border: 0; border-radius: 28px;
-      background: #fff; color: #111; font-size: 17px; font-weight: 600;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
-    }
-    #note {
-      position: absolute; left: 0; right: 0; bottom: 36px; text-align: center;
-      color: #aab; font-size: 13px; pointer-events: none;
-    }
+    :root { --fg: #f2f4f8; --dim: #9aa3b5; --accent: #ffd166; --glass: rgba(22, 26, 36, .72); --line: rgba(255, 255, 255, .12); }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; height: 100%; overflow: hidden; color: var(--fg);
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+      background: radial-gradient(120% 80% at 50% 35%, #2a3142 0%, #141821 55%, #0a0c11 100%); }
+    model-viewer { position: absolute; inset: 0; width: 100%; height: 100%; --poster-color: transparent; }
+    button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+
+    header { position: absolute; top: 0; left: 0; right: 0; padding: calc(env(safe-area-inset-top) + 16px) 20px 0;
+      display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+    h1 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .28em; }
+    #size-label { margin-top: 6px; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    #size-label small { font-size: 13px; font-weight: 500; color: var(--dim); margin-left: 6px; }
+    .tools { display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+    .icon { width: 44px; height: 44px; border-radius: 50%; background: var(--glass); border: 1px solid var(--line);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); display: grid; place-items: center; }
+    .icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .icon[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+    .icon:active, .seg button:active, #ar:active { transform: scale(.95); }
+
+    #panel { position: absolute; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 12px);
+      max-width: 460px; margin: 0 auto; padding: 14px; border-radius: 22px; background: var(--glass);
+      border: 1px solid var(--line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+    .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 14px; background: rgba(0, 0, 0, .35); }
+    .seg button { padding: 9px 0 8px; border-radius: 11px; font-size: 14px; font-weight: 600; color: var(--dim); line-height: 1.25; }
+    .seg button span { display: block; font-size: 11px; font-weight: 500; opacity: .8; }
+    .seg button[aria-pressed="true"] { background: #fff; color: #111; }
+    .row { display: flex; gap: 10px; margin-top: 12px; }
+    #roar { flex: 0 0 auto; padding: 0 18px; height: 52px; border-radius: 16px; border: 1px solid var(--line); font-weight: 600; }
+    #roar.playing { color: var(--accent); border-color: var(--accent); }
+    #ar { flex: 1; height: 52px; border-radius: 16px; background: var(--accent); color: #1a1400; font-size: 17px; font-weight: 700; }
+    #ar[disabled] { background: rgba(255, 255, 255, .1); color: var(--dim); font-size: 13px; font-weight: 500; }
+    #hint { margin: 10px 2px 0; font-size: 12px; color: var(--dim); text-align: center; min-height: 1.4em; }
+
+    #loading { position: absolute; inset: 0; display: grid; place-content: center; gap: 14px; text-align: center;
+      background: #0d1016; transition: opacity .5s; font-size: 13px; letter-spacing: .2em; color: var(--dim); }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #bar { width: 180px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+    #bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+    #toast { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); padding: 10px 16px; border-radius: 12px;
+      background: rgba(0, 0, 0, .75); font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+    #toast.show { opacity: 1; }
   </style>
 </head>
 <body>
-  <!-- ios-src を省略: iPhone では AR ボタンを押した時点で USDZ を自動生成する -->
-  <model-viewer
-    src="wyvern.glb"
-    alt="3Dモデル"
-    ar
-    ar-modes="webxr scene-viewer quick-look"
-    ar-scale="auto"
-    ar-placement="floor"
-    camera-controls
-    touch-action="pan-y"
-    auto-rotate
-    shadow-intensity="1"
-    exposure="1">
-    <button slot="ar-button" id="ar-button">ARで床に置く</button>
+  <!-- ios-src を省略: iPhone では AR 起動時に USDZ を自動生成する（その時点の大きさが反映される） -->
+  <model-viewer id="mv" src="wyvern.glb" alt="飛竜の3Dモデル"
+    ar ar-modes="webxr scene-viewer quick-look" ar-placement="floor" ar-scale="auto"
+    camera-controls touch-action="none" auto-rotate rotation-per-second="20deg"
+    interaction-prompt="none" shadow-intensity="1.1" shadow-softness="0.9"
+    exposure="1.05" tone-mapping="neutral" camera-orbit="30deg 78deg auto">
+    <span slot="ar-button"></span>
+    <span slot="progress-bar"></span>
   </model-viewer>
-  <div id="note" hidden>この端末・ブラウザはARに対応していません（3D表示のみ）</div>
+
+  <header>
+    <div>
+      <h1>AR WYVERN</h1>
+      <div id="size-label">1.9<small>m 全長</small></div>
+    </div>
+    <div class="tools">
+      <button class="icon" id="rotate" aria-pressed="true" aria-label="自動回転">
+        <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
+      </button>
+      <button class="icon" id="share" aria-label="共有">
+        <svg viewBox="0 0 24 24"><path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="panel">
+    <div class="seg" id="sizes">
+      <button data-len="0.3">卓上<span>30 cm</span></button>
+      <button data-len="1.9" aria-pressed="true">中型<span>1.9 m</span></button>
+      <button data-len="8" data-fixed>実物大<span>8 m</span></button>
+    </div>
+    <div class="row">
+      <button id="roar">咆哮</button>
+      <button id="ar" disabled>読み込み中…</button>
+    </div>
+    <p id="hint"></p>
+  </div>
+
+  <div id="loading"><div>LOADING</div><div id="bar"><i></i></div></div>
+  <div id="toast"></div>
+
   <script>
-    const mv = document.querySelector('model-viewer');
+    const BASE_LENGTH = 1.9;   // wyvern.glb の全長（m）。モデルを差し替えたら更新する
+    const mv = document.getElementById('mv');
+    const $ = id => document.getElementById(id);
+    const toast = msg => { const t = $('toast'); t.textContent = msg; t.classList.add('show');
+      clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1800); };
+
+    // ---- 読み込み ----
+    mv.addEventListener('progress', e => { $('bar').firstElementChild.style.width = (e.detail.totalProgress * 100) + '%'; });
     mv.addEventListener('load', () => {
-      // AR非対応環境（PCなど）ではボタンが出ないので、その旨を表示する
-      if (!mv.canActivateAR) document.getElementById('note').hidden = false;
+      $('loading').classList.add('done');
+      const ar = $('ar');
+      if (mv.canActivateAR) { ar.disabled = false; ar.textContent = 'ARで床に置く'; }
+      else { ar.textContent = 'この端末はAR非対応（3D表示のみ）'; }
     });
+    mv.addEventListener('error', () => { $('loading').firstElementChild.textContent = '読み込みに失敗しました'; });
+
+    // ---- 大きさ切り替え ----
+    const hints = { '0.3': '机の上に置けるサイズ。ピンチで拡大縮小できます',
+                    '1.9': '室内向けのサイズ。ピンチで拡大縮小できます',
+                    '8': '実寸固定。屋外など広い場所で、少し離れて置いてください' };
+    function setSize(btn) {
+      const len = parseFloat(btn.dataset.len), s = len / BASE_LENGTH;
+      for (const b of $('sizes').children) b.setAttribute('aria-pressed', b === btn);
+      mv.scale = `${s} ${s} ${s}`;
+      mv.setAttribute('ar-scale', 'fixed' in btn.dataset ? 'fixed' : 'auto');
+      $('size-label').firstChild.textContent = len < 1 ? Math.round(len * 100) : len.toFixed(1);
+      $('size-label').lastElementChild.textContent = (len < 1 ? 'cm' : 'm') + ' 全長';
+      $('hint').textContent = hints[btn.dataset.len] || '';
+      requestAnimationFrame(() => mv.updateFraming && mv.updateFraming());
+    }
+    $('sizes').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setSize(b); });
+    $('hint').textContent = hints['1.9'];
+
+    // ---- AR ----
+    $('ar').addEventListener('click', () => { toast('ARを準備中…'); mv.activateAR(); });
+
+    // ---- 自動回転 / 共有 ----
+    $('rotate').addEventListener('click', e => {
+      const on = !mv.autoRotate; mv.autoRotate = on; e.currentTarget.setAttribute('aria-pressed', on);
+    });
+    $('share').addEventListener('click', async () => {
+      const url = location.href;
+      try {
+        if (navigator.share) await navigator.share({ title: document.title, url });
+        else { await navigator.clipboard.writeText(url); toast('URLをコピーしました'); }
+      } catch (_) { /* 共有シートを閉じただけ */ }
+    });
+
+    // ---- 咆哮（Web Audio でその場で合成。音声ファイルなし）----
+    let ctx;
+    function roar() {
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      ctx.resume();
+      const t = ctx.currentTime, d = 2.4;
+      const out = ctx.createGain();
+      out.gain.setValueAtTime(0.0001, t);
+      out.gain.exponentialRampToValueAtTime(0.8, t + 0.12);
+      out.gain.setValueAtTime(0.8, t + d * 0.55);
+      out.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(3800, t + 0.5);
+      lp.frequency.exponentialRampToValueAtTime(700, t + d);
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(1024);
+      for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(4 * x); }
+      shaper.curve = curve;
+      shaper.connect(lp).connect(out).connect(ctx.destination);
+
+      // がなり成分：振幅を細かく揺らす
+      const rough = ctx.createGain(); rough.gain.value = 0.6; rough.connect(shaper);
+      const lfo = ctx.createOscillator(); lfo.frequency.setValueAtTime(34, t); lfo.frequency.linearRampToValueAtTime(19, t + d);
+      const lfoAmp = ctx.createGain(); lfoAmp.gain.value = 0.4; lfo.connect(lfoAmp).connect(rough.gain);
+
+      const voice = (type, f0, f1, f2, gain) => {
+        const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; g.gain.value = gain;
+        o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + 0.45);
+        o.frequency.exponentialRampToValueAtTime(f2, t + d);
+        o.connect(g).connect(rough); o.start(t); o.stop(t + d); };
+      voice('sawtooth', 70, 135, 48, 0.5);      // 低いうなり
+      voice('square', 73, 141, 51, 0.25);
+      voice('sawtooth', 520, 1250, 380, 0.16);  // 高い金切り声
+
+      const n = ctx.createBufferSource(), buf = ctx.createBuffer(1, ctx.sampleRate * d, ctx.sampleRate);
+      const ch = buf.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+      n.buffer = buf;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 0.7;
+      const ng = ctx.createGain(); ng.gain.value = 0.35;
+      n.connect(bp).connect(ng).connect(rough); n.start(t); n.stop(t + d);
+      lfo.start(t); lfo.stop(t + d);
+
+      if (navigator.vibrate) navigator.vibrate([120, 60, 500]);
+      $('roar').classList.add('playing'); setTimeout(() => $('roar').classList.remove('playing'), d * 1000);
+    }
+    $('roar').addEventListener('click', roar);
   </script>
 </body>
 </html>
